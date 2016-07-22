@@ -6,16 +6,17 @@
 
 #include <sourcemod>
 #include <sdktools>
+#include <adt_trie>
 
 #pragma newdecls required
 #include <navmesh>
 
-#define PLUGIN_VERSION "1.0.4"
+#define PLUGIN_VERSION "1.0.4-sigsegv1"
 
 public Plugin myinfo = 
 {
     name = "SourcePawn Navigation Mesh Parser",
-    author	= "KitRifty, Benoist3012",
+    author	= "KitRifty, Benoist3012 (with modifications by sigsegv)",
     description	= "A plugin that can read Valve's Navigation Mesh.",
     version = PLUGIN_VERSION,
     url = ""
@@ -36,6 +37,9 @@ Handle g_hNavMeshAreaLadderConnections;
 Handle g_hNavMeshAreaVisibleAreas;
 
 Handle g_hNavMeshLadders;
+
+StringMap g_hNavMeshAreasByID;
+StringMap g_hNavMeshLaddersByID;
 
 int g_iNavMeshMagicNumber;
 int g_iNavMeshVersion;
@@ -119,6 +123,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error,int err_max)
 	CreateNative("NavMeshArea_GetLightIntensity", Native_NavMeshAreaGetLightIntensity);
 	
 	CreateNative("NavMeshLadder_GetLength", Native_NavMeshLadderGetLength);
+	
+	CreateNative("NavMesh_GetAreaIndexFromID", Native_NavMeshGetAreaByID);
+	CreateNative("NavMesh_GetLadderIndexFromID", Native_NavMeshGetLadderByID);
 }
 
 public void OnPluginStart()
@@ -133,6 +140,9 @@ public void OnPluginStart()
 	g_hNavMeshAreaVisibleAreas = CreateArray(NavMeshVisibleArea_MaxStats);
 	
 	g_hNavMeshLadders = CreateArray(NavMeshLadder_MaxStats);
+	
+	g_hNavMeshAreasByID = CreateTrie();
+	g_hNavMeshLaddersByID = CreateTrie();
 	
 	g_hNavMeshGrid = CreateArray(NavMeshGrid_MaxStats);
 	g_hNavMeshGridLists = CreateArray(NavMeshGridList_MaxStats);
@@ -1419,6 +1429,10 @@ bool NavMeshLoad(const char[] sMapName)
 			SetArrayCell(g_hNavMeshAreas, iIndex, 0.0, NavMeshArea_PathLengthSoFar);
 			SetArrayCell(g_hNavMeshAreas, iIndex, false, NavMeshArea_Blocked);
 			SetArrayCell(g_hNavMeshAreas, iIndex, -1, NavMeshArea_NearSearchMarker);
+			
+			char key[16];
+			IntToString(iAreaID, key, sizeof(key));
+			SetTrieValue(g_hNavMeshAreasByID, key, iIndex, false);
 		}
 	}
 	
@@ -1489,6 +1503,10 @@ bool NavMeshLoad(const char[] sMapName)
 			SetArrayCell(g_hNavMeshLadders, iIndex, iLadderTopRightAreaID, NavMeshLadder_TopRightAreaIndex);
 			SetArrayCell(g_hNavMeshLadders, iIndex, iLadderTopBehindAreaID, NavMeshLadder_TopBehindAreaIndex);
 			SetArrayCell(g_hNavMeshLadders, iIndex, iLadderBottomAreaID, NavMeshLadder_BottomAreaIndex);
+			
+			char key[16];
+			IntToString(iLadderID, key, sizeof(key));
+			SetTrieValue(g_hNavMeshLaddersByID, key, iIndex, false);
 		}
 	}
 	
@@ -1565,6 +1583,9 @@ void NavMeshDestroy()
 	ClearArray(g_hNavMeshAreaLadderConnections);
 	ClearArray(g_hNavMeshAreaVisibleAreas);
 	ClearArray(g_hNavMeshLadders);
+	
+	ClearTrie(g_hNavMeshAreasByID);
+	ClearTrie(g_hNavMeshLaddersByID);
 	
 	ClearArray(g_hNavMeshGrid);
 	ClearArray(g_hNavMeshGridLists);
@@ -2631,6 +2652,42 @@ stock bool NavMeshGetGroundHeight(const float flPos[3], float &flHeight, float f
 //	==================================
 //	API
 //	==================================
+
+public int Native_NavMeshGetAreaByID(Handle plugin, int numParams)
+{
+	if (!g_bNavMeshBuilt)
+	{
+		LogError("Could not lookup area by ID because the nav mesh doesn't exist!");
+		return -1;
+	}
+	
+	int id = GetNativeCell(1);
+	
+	char key[16];
+	IntToString(id, key, sizeof(key));
+	
+	int idx = -1;
+	GetTrieValue(g_hNavMeshAreasByID, key, idx);
+	return idx;
+}
+
+public int Native_NavMeshGetLadderByID(Handle plugin, int numParams)
+{
+	if (!g_bNavMeshBuilt)
+	{
+		LogError("Could not lookup ladder by ID because the nav mesh doesn't exist!");
+		return -1;
+	}
+	
+	int id = GetNativeCell(1);
+	
+	char key[16];
+	IntToString(id, key, sizeof(key));
+	
+	int idx = -1;
+	GetTrieValue(g_hNavMeshLaddersByID, key, idx);
+	return idx;
+}
 
 public int Native_NavMeshExists(Handle plugin,int numParams)
 {

@@ -308,6 +308,10 @@ native float NavMeshArea_GetLightIntensity(int iAreaIndex, const float flPos[3])
 
 native float NavMeshLadder_GetLength(int iLadderID);
 
+// sigsegv additions: get index of area/ladder based on global ID
+native int NavMesh_GetAreaIndexFromID(int iAreaGlobalID);
+native int NavMesh_GetLadderIndexFromID(int iLadderGlobalID);
+
 
 // Shortest-path cost function for NavMesh_BuildPath.
 public int NavMeshShortestPathCost(int iAreaIndex,int iFromAreaIndex,int iLadderIndex, any data)
