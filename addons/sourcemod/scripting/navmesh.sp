@@ -484,7 +484,8 @@ bool NavMeshBuildPath(int iStartAreaIndex,
 	NavPathCostFunctor iCostFunction,
 	any iCostData=0,
 	int &iClosestAreaIndex=-1,
-	float flMaxPathLength=0.0)
+	float flMaxPathLength=0.0,
+	float &flPathTotalLenght=0.0)
 {
 	if (!g_bNavMeshBuilt) 
 	{
@@ -696,20 +697,21 @@ bool NavMeshBuildPath(int iStartAreaIndex,
 			float flNewAreaCenter[3];
 			NavMeshAreaGetCenter(iNewAreaIndex, flNewAreaCenter);
 			
+			float flAreaCenter[3];
+			NavMeshAreaGetCenter(iAreaIndex, flAreaCenter);
+			
+			float flDeltaLength = GetVectorDistance(flNewAreaCenter, flAreaCenter);
+			float flNewLengthSoFar = view_as<float>(g_hNavMeshAreas.Get(iAreaIndex, NavMeshArea_PathLengthSoFar)) + flDeltaLength;
+			
 			if (bHaveMaxPathLength)
 			{
-				float flAreaCenter[3];
-				NavMeshAreaGetCenter(iAreaIndex, flAreaCenter);
-				
-				float flDeltaLength = GetVectorDistance(flNewAreaCenter, flAreaCenter);
-				float flNewLengthSoFar = view_as<float>(g_hNavMeshAreas.Get(iAreaIndex, NavMeshArea_PathLengthSoFar)) + flDeltaLength;
 				if (flNewLengthSoFar > flMaxPathLength)
 				{
 					continue;
 				}
-				
-				g_hNavMeshAreas.Set(iNewAreaIndex, flNewLengthSoFar, NavMeshArea_PathLengthSoFar);
 			}
+			g_hNavMeshAreas.Set(iNewAreaIndex, flNewLengthSoFar, NavMeshArea_PathLengthSoFar);
+			flPathTotalLenght = flNewLengthSoFar;
 			
 			if ((NavMeshAreaIsOpen(iNewAreaIndex) || NavMeshAreaIsClosed(iNewAreaIndex)) &&
 				g_hNavMeshAreas.Get(iNewAreaIndex, NavMeshArea_CostSoFar) <= iNewCostSoFar)
@@ -1766,8 +1768,7 @@ void NavMeshGridAllocate(float flMinX, float flMaxX, float flMinY, float flMaxY)
 
 void NavMeshGridFinalize()
 {
-	int iAreaCount = g_hNavMeshAreas.Length;
-	bool[] bAreaInGrid = new bool[iAreaCount];
+	bool bAllIn = true;
 	
 	SortADTArrayCustom(g_hNavMeshGridLists, SortNavMeshGridLists);
 	
@@ -1786,26 +1787,14 @@ void NavMeshGridFinalize()
 				int iAreaIndex = GetArrayCell(g_hNavMeshGridLists, iListIndex);
 				if (iAreaIndex != -1)
 				{
-					bAreaInGrid[iAreaIndex] = true;
+					
 				}
 				else
 				{
 					LogError("Warning! Invalid nav area found in list of grid index %d!", iGridIndex);
+					bAllIn = false;
 				}
 			}
-		}
-	}
-	
-	bool bAllIn = true;
-	int iErrorAreaIndex = -1;
-	
-	for (int iAreaIndex = 0; iAreaIndex < iAreaCount; iAreaIndex++)
-	{
-		if (!bAreaInGrid[iAreaIndex])
-		{
-			iErrorAreaIndex = iAreaIndex;
-			bAllIn = false;
-			break;
 		}
 	}
 	
@@ -1816,7 +1805,6 @@ void NavMeshGridFinalize()
 	else
 	{
 		LogError("Warning! Not all nav areas were parsed into the grid! Please check your nav mesh!");
-		LogError("First encountered nav area ID %d not in the grid!", g_hNavMeshAreas.Get(iErrorAreaIndex));
 	}
 }
 
@@ -2064,7 +2052,7 @@ stock int NavMeshGetNearestArea(float flPos[3], bool bAnyZ=false, float flMaxDis
 							flEndPos[1] = flPos[1];
 							flEndPos[2] = flPos[2] + StepHeight;
 							
-							Handle hTrace = TR_TraceRayEx(flPos, flEndPos, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint);
+							Handle hTrace = TR_TraceRayFilterEx(flPos, flEndPos, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint, TraceRayIgnoreCustom);
 							float flFraction = TR_GetFraction(hTrace);
 							TR_GetEndPosition(flEndPos, hTrace);
 							delete hTrace;
@@ -2093,7 +2081,7 @@ stock int NavMeshGetNearestArea(float flPos[3], bool bAnyZ=false, float flMaxDis
 								flEndPos[1] = flAreaPos[1];
 								flEndPos[2] = flSafePos[2];
 								
-								hTrace = TR_TraceRayEx(flStartPos, flEndPos, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint);
+								hTrace = TR_TraceRayFilterEx(flStartPos, flEndPos, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint, TraceRayIgnoreCustom);
 								flFraction = TR_GetFraction(hTrace);
 								delete hTrace;
 								
@@ -2107,7 +2095,7 @@ stock int NavMeshGetNearestArea(float flPos[3], bool bAnyZ=false, float flMaxDis
 							flEndPos[1] = flAreaPos[1];
 							flEndPos[2] = flSafePos[2] + StepHeight;
 							
-							hTrace = TR_TraceRayEx(flSafePos, flEndPos, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint);
+							hTrace = TR_TraceRayFilterEx(flSafePos, flEndPos, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint, TraceRayIgnoreCustom);
 							flFraction = TR_GetFraction(hTrace);
 							delete hTrace;
 							
@@ -2895,7 +2883,7 @@ stock bool NavMeshGetGroundHeight(const float flPos[3], float &flHeight, float f
 	
 	while (flTo[2] - flPos[2] < flMaxOffset)
 	{
-		Handle hTrace = TR_TraceRayEx(flFrom, flTo, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint);
+		Handle hTrace = TR_TraceRayFilterEx(flFrom, flTo, MASK_NPCSOLID_BRUSHONLY, RayType_EndPoint, TraceRayIgnoreCustom);
 		float flFraction = TR_GetFraction(hTrace);
 		float flPlaneNormal[3];
 		float flEndPos[3];
@@ -2969,6 +2957,20 @@ stock int NavSpotOrderGetParametricDistance(int spotOrderIndex)
 	return g_hNavMeshAreaEncounterSpots.Get(spotOrderIndex, NavMeshEncounterSpot_ParametricDistance);
 }
 
+public bool TraceRayIgnoreCustom(int entity,int mask, any data)
+{
+	if (entity > 0 && entity <= MaxClients) return false;
+
+	if (IsValidEdict(entity))
+	{
+		char sClass[64];
+		GetEntityNetClass(entity, sClass, sizeof(sClass));
+		if (StrEqual(sClass, "CFuncRespawnRoomVisualizer")) return false;
+		else if (StrEqual(sClass, "CBaseDoor")) return false;
+		else if (StrEqual(sClass, "CTFBaseBoss")) return false;
+	}
+	return true;
+}
 //	==================================
 //	API
 //	==================================
@@ -3090,6 +3092,7 @@ public int Native_NavMeshBuildPath(Handle plugin, int numParams)
 	GetNativeArray(3, flGoalPos, 3);
 	
 	int iClosestIndex = view_as<int>(GetNativeCellRef(6));
+	float flTotalLenght = view_as<float>(GetNativeCellRef(8));
 	
 	bool bResult = NavMeshBuildPath(view_as<int>(GetNativeCell(1)), 
 		view_as<int>(GetNativeCell(2)), 
@@ -3098,9 +3101,10 @@ public int Native_NavMeshBuildPath(Handle plugin, int numParams)
 		view_as<NavPathCostFunctor>(GetNativeFunction(4)),
 		GetNativeCell(5),
 		iClosestIndex,
-		view_as<float>(GetNativeCell(7)));
-		
+		view_as<float>(GetNativeCell(7)),
+		flTotalLenght);
 	SetNativeCellRef(6, iClosestIndex);
+	SetNativeCellRef(8, flTotalLenght);
 	return bResult;
 }
 
@@ -3593,4 +3597,3 @@ public int Native_NavSpotOrderGetParametricDistance(Handle plugin, int numParams
 {
 	return NavSpotOrderGetParametricDistance(GetNativeCell(1));
 }
-
